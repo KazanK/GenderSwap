@@ -171,15 +171,16 @@ def f2m(tokens):
         label = token.dependency_edge.label
 
         # Tokens to replace with male lemma
-        if lemma in f2m_specials or lower in f2m_specials or lemma in f2m_dictionary:
-            new_text = lower
-            if lemma == 'her':
+        if lower in f2m_specials or lemma in f2m_dictionary:
+            new_text = ''
+
+            if lower == 'hers':
+                new_text = 'his'
+            elif lower == 'her':
                 if label == 37: #POSS
                     new_text = 'his'
                 else:           #DOBJ = 18, IOBJ = 21, POBJ = 36, GOBJ = 79
                     new_text = 'him'
-            elif lemma == 'hers':
-                new_text = 'his'
             elif lower == 'ms':
                 new_text = 'mr'
             elif lower == 'mrs':
@@ -187,6 +188,8 @@ def f2m(tokens):
             elif lower in ['miss', 'misses']:
                 if proper:
                     new_text = 'mister'
+                else:
+                    new_text = lower
             elif lemma in f2m_dictionary:
                 new_text = f2m_dictionary[lemma]
                 if plural:      # If original text is plural, convert male lemma to plural too
