@@ -8,6 +8,7 @@ import six
 import re
 
 
+# Dictionary of female to male nouns/pronouns
 f2m_dictionary = {
     "she" : "he",
     "shes" : "hes",
@@ -67,7 +68,9 @@ f2m_dictionary = {
     "pussy" : "hole",
     "vagina" : "hole"
 }
-special_cases = ['her', 'hers', 'ms', 'mrs', 'miss', 'misses']
+
+# Special cases for female to male swaps that need to be handled separately
+f2m_specials = ['her', 'hers', 'ms', 'mrs', 'miss', 'misses']
 
 # # part-of-speech tags from enums.PartOfSpeech.Tag
 # pos_tags = ('UNKNOWN', 'ADJ', 'ADP', 'ADV', 'CONJ', 'DET', 'NOUN', 'NUM',
@@ -126,7 +129,12 @@ closing_chars = (')', ']', '}', '>')
 
 
 def analyze_syntax(text):
-    """Detects syntax in the text."""
+    """Detects syntax in the text.
+
+    :param text: Text to analyze
+    :return: List of tokens from GCP NLP
+    """
+
     if isinstance(text, six.binary_type):
         text = text.decode('utf-8')
 
@@ -140,6 +148,12 @@ def analyze_syntax(text):
 
 
 def f2m(tokens):
+    """Swaps female nouns/pronouns with male equivalents.
+
+    :param tokens: List of tokens from GCP NLP
+    :return: String with all detected female nouns/pronouns swapped. Text from tokens are joined back together with
+    proper spacing, but line breaks are lost.
+    """
     full_text = []
     stack = []
 
@@ -157,7 +171,7 @@ def f2m(tokens):
         label = token.dependency_edge.label
 
         # Tokens to replace with male lemma
-        if lemma in special_cases or lower in special_cases or lemma in f2m_dictionary:
+        if lemma in f2m_specials or lower in f2m_specials or lemma in f2m_dictionary:
             new_text = lower
             if lemma == 'her':
                 if label == 37: #POSS
@@ -194,46 +208,64 @@ def f2m(tokens):
     return ''.join(full_text)
 
 
-def append(full_text, stack, text, pos, prev_token):
+def append(full_text, stack, add_text, pos, prev_token):
+    """Appends a new string to full_text, whose contents are be joined back together in f2m(), while handling spacing
+    for special characters.
+
+    :param full_text: List of strings that are ready to be joined into the final text
+    :param stack: Stack used to check for open/close set characters `` '' "" () [] {} <>
+    :param add_text: Text to be appended from the current Token
+    :param pos: Part of speech of add_text
+    :param prev_token: Previous Token
+    :return: None
+    """
+
     prev_text = prev_token.text.content
     prev_pos = prev_token.part_of_speech.tag
 
-    if (text in no_space_chars) or \
+    if (add_text in no_space_chars) or \
             (prev_text in no_space_words and pos not in [7, 10]) or \
             (prev_text in no_space_nums and pos == 7) or \
-            (text == '%' and prev_pos == 7):    # Special characters NOT prepended by a space
-        full_text.append(text)
-    elif text in space_chars:                   # Special characters prepended by a space
-        full_text.append(' ' + text)
-    elif text in quote_chars:                   # Quotation-like characters
-        if text in stack:           # closing quote
+            (add_text == '%' and prev_pos == 7):    # Special characters NOT prepended by a space
+        full_text.append(add_text)
+    elif add_text in space_chars:                   # Special characters prepended by a space
+        full_text.append(' ' + add_text)
+    elif add_text in quote_chars:                   # Quotation-like characters
+        if add_text in stack:           # closing quote
             stack.pop()
-            full_text.append(text)
+            full_text.append(add_text)
         else:                       # opening quote
-            stack.append(text)
-            full_text.append(' ' + text)
-    elif text in opening_chars:                 # Opening brackets
-        stack.append(text)
-        full_text.append(' ' + text)
-    elif text in closing_chars:                 # Closing brackets
+            stack.append(add_text)
+            full_text.append(' ' + add_text)
+    elif add_text in opening_chars:                 # Opening brackets
+        stack.append(add_text)
+        full_text.append(' ' + add_text)
+    elif add_text in closing_chars:                 # Closing brackets
         stack.pop()
-        full_text.append(text)
+        full_text.append(add_text)
     elif prev_text in quote_chars:              # Tokens after quotation-like characters
         if prev_text in stack:      # following opening quote
-            full_text.append(text)
+            full_text.append(add_text)
         else:                       # following closing quote
-            full_text.append(' ' + text)
+            full_text.append(' ' + add_text)
     elif prev_text in opening_chars:            # Tokens after opening brackets
-        full_text.append(text)
+        full_text.append(add_text)
     elif prev_text in closing_chars:            # Tokens after closing brackets
-        full_text.append(' ' + text)
-    elif text.find('\'') != -1:                 # Contractions
-        full_text.append(text)
+        full_text.append(' ' + add_text)
+    elif add_text.find('\'') != -1:                 # Contractions
+        full_text.append(add_text)
     else:                                       # Everything else
-        full_text.append(' ' + text)
+        full_text.append(' ' + add_text)
 
 
 def reconstruct(new, original):
+    """Reconstructs the paragraph structure of the original text by reinserting line breaks lost to GCP NLP. Writes the
+    new text to a GenderSwap.txt.
+
+    :param new: New text
+    :param original: Original text
+    :return: None
+    """
     output = []
     seqm = difflib.SequenceMatcher(None, new, original, False)
     for opcode, a0, a1, b0, b1 in seqm.get_opcodes():
@@ -259,43 +291,8 @@ def reconstruct(new, original):
 # Instantiates a client
 client = language.LanguageServiceClient()
 
-# The text to analyze
-#text = 'Her eyes were the most defining thing about her. She said, "Hi! What up fam; can you help me out, my \'dude\'?" She\'s up to something already-done I haven\'t seen before. She\'s pretty cool though. Those vixens have got spunk. That ball was hers.'
-#text = 'yoooo "asdf (qwer) \'jkl <xcvb [uy]>\' {123}"'
-
-# f1 = open('Test1.txt', 'r')
-# text1 = f1.read()
-# f1.close()
-# split1 = text1.split(' ')
-#
-# f2 = open('Test2.txt', 'r')
-# text2 = f2.read()
-# f2.close()
-# split2 = text2.split(' ')
-
-#diff = difflib.ndiff(text1, text2)
-#print(''.join(diff))
-
-# text1 = 'hello\nworld\nfoo\nbar\nfizz\nbuzz'
-# text2 = 'hello world foo bar fizz buzz'
-# print('before:\n' + text2 + '\n')
-# fixed = text2
-# fixed = ''
-# text1 = re.sub(r' *(\r|\n)+', ' \n\n', text1)
-
-# j = 0
-# for i, s in enumerate(difflib.ndiff(text2, text1)):
-#     if s[0] == '-':
-#         print(u'Delete "{}" from position {}'.format(s[-1], i))
-#     elif s[0] == '+': #and s[-1] == '\n':
-#         print(u'Add "{}" to position {}'.format(s[-1], i))
-#
-#         if s[-1] == '\n':
-#             i = i - j
-#             text2 = text2[:i] + '\n' + text2[i:]
-#         else:
-#             j = j + 1
-
+# Read text to process
+# TODO add support for other file types: .doc, .docx, .pdf, and .odt
 f1 = open('Test.txt', 'r')
 text = f1.read()
 f1.close()
