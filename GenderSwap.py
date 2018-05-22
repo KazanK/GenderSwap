@@ -166,7 +166,7 @@ def f2m(tokens):
         lower = text.lower()
         lemma = token.lemma.lower()
         pos = token.part_of_speech.tag
-        plural = token.part_of_speech.number
+        plural = token.part_of_speech.number > 1
         proper = token.part_of_speech.proper
         label = token.dependency_edge.label
 
