@@ -47,6 +47,7 @@ f2m_dictionary = {
     "waitress" : "waiter",
     "witch" : "wizard",
     "madam" : "sir",
+    "ma'am" : "sir",
     "ms" : "mr",
     "ms." : "mr.",
 
@@ -66,7 +67,9 @@ f2m_dictionary = {
     "breast" : "moob",
     "tit" : "moob",
     "pussy" : "hole",
-    "vagina" : "hole"
+    "vagina" : "hole",
+
+    "panties" : "underwear",
 }
 
 # Special cases for female to male swaps that need to be handled separately
@@ -109,10 +112,10 @@ opening characters should be be prepended with a space
 closing characters should not
 """
 # these characters should NOT  be prepended with a space
-no_space_chars = (',', '/', '\\', ';', ':', '.', '?', '!', '@', '^', '*', '-', '_', '~')    # '\'',
+no_space_chars = (',', '/', '\\', ';', ':', '.', '...', '?', '!', '@', '^', '*', '-', '_', '~')    # '\'',
 
 # words (neither PUNCT nor NUM) following these characters should not be prepended with a space
-no_space_words = ('/', '\\', '@', '-', '_') # '\'',
+no_space_words = ('/', '\\', '@', '-', '_')
 
 # numbers following these characters should not be prepended with a space
 no_space_nums = ('#', '$')
@@ -199,12 +202,12 @@ def f2m(tokens):
                 new_text = new_text.capitalize()
 
             if i == 0:                                  # If first token, append without spacing
-                full_text.append(new_text)
+                append(full_text, stack, new_text, pos, None)
             else:                                       # Append according to spacing rules
                 append(full_text, stack, new_text, pos, tokens[i - 1])
         else:       # Just append the original text
             if i == 0:                                  # If first token, append without spacing
-                full_text.append(text)
+                append(full_text, stack, text, pos, None)
             else:                                       # Append according to spacing rules
                 append(full_text, stack, text, pos, tokens[i - 1])
 
@@ -223,42 +226,47 @@ def append(full_text, stack, add_text, pos, prev_token):
     :return: None
     """
 
-    prev_text = prev_token.text.content
-    prev_pos = prev_token.part_of_speech.tag
-
-    if (add_text in no_space_chars) or \
-            (prev_text in no_space_words and pos not in [7, 10]) or \
-            (prev_text in no_space_nums and pos == 7) or \
-            (add_text == '%' and prev_pos == 7):    # Special characters NOT prepended by a space
+    if prev_token is None:                              # The first token should never be prepended with a space
+        if add_text in quote_chars + opening_chars:     # quote_chars and opening_chars need to be added to the stack
+            stack.append(add_text)
         full_text.append(add_text)
-    elif add_text in space_chars:                   # Special characters prepended by a space
-        full_text.append(' ' + add_text)
-    elif add_text in quote_chars:                   # Quotation-like characters
-        if add_text in stack:           # closing quote
-            stack.pop()
+    else:
+        prev_text = prev_token.text.content
+        prev_pos = prev_token.part_of_speech.tag
+
+        if (add_text in no_space_chars) or \
+                (prev_text in no_space_words and pos not in [7, 10]) or \
+                (prev_text in no_space_nums and pos == 7) or \
+                (add_text == '%' and prev_pos == 7):    # Special characters NOT prepended by a space
             full_text.append(add_text)
-        else:                       # opening quote
+        elif add_text in space_chars:                   # Special characters prepended by a space
+            full_text.append(' ' + add_text)
+        elif add_text in quote_chars:                   # Quotation-like characters
+            if add_text in stack:       # closing quote
+                stack.pop()
+                full_text.append(add_text)
+            else:                       # opening quote
+                stack.append(add_text)
+                full_text.append(' ' + add_text)
+        elif add_text in opening_chars:                 # Opening brackets
             stack.append(add_text)
             full_text.append(' ' + add_text)
-    elif add_text in opening_chars:                 # Opening brackets
-        stack.append(add_text)
-        full_text.append(' ' + add_text)
-    elif add_text in closing_chars:                 # Closing brackets
-        stack.pop()
-        full_text.append(add_text)
-    elif prev_text in quote_chars:              # Tokens after quotation-like characters
-        if prev_text in stack:      # following opening quote
+        elif add_text in closing_chars:                 # Closing brackets
+            stack.pop()
             full_text.append(add_text)
-        else:                       # following closing quote
+        elif prev_text in quote_chars:                  # Tokens after quotation-like characters
+            if prev_text in stack:      # following opening quote
+                full_text.append(add_text)
+            else:                       # following closing quote
+                full_text.append(' ' + add_text)
+        elif prev_text in opening_chars:                # Tokens after opening brackets
+            full_text.append(add_text)
+        elif prev_text in closing_chars:                # Tokens after closing brackets
             full_text.append(' ' + add_text)
-    elif prev_text in opening_chars:            # Tokens after opening brackets
-        full_text.append(add_text)
-    elif prev_text in closing_chars:            # Tokens after closing brackets
-        full_text.append(' ' + add_text)
-    elif add_text.find('\'') != -1:                 # Contractions
-        full_text.append(add_text)
-    else:                                       # Everything else
-        full_text.append(' ' + add_text)
+        elif add_text.find('\'') != -1:                 # Contractions
+            full_text.append(add_text)
+        else:                                           # Everything else
+            full_text.append(' ' + add_text)
 
 
 def reconstruct(new, original):
@@ -269,25 +277,41 @@ def reconstruct(new, original):
     :param original: Original text
     :return: None
     """
+
     output = []
+
+    # Find deltas between new and original and add newlines to the output wherever they're found in original
     seqm = difflib.SequenceMatcher(None, new, original, False)
     for opcode, a0, a1, b0, b1 in seqm.get_opcodes():
-        delta_a = seqm.a[a0:a1]
-        delta_b = seqm.b[b0:b1]
+        delta_a = seqm.a[a0:a1]     # Substring in new
+        delta_b = seqm.b[b0:b1]     # Substring in original
         newline = re.search(r'(\r|\n)+', delta_b)
+
+        # Always take delta_a over delta_b unless there's a newline
         if opcode == 'equal':
             output.append(delta_a)
-        elif opcode == 'insert' and newline:
+        elif opcode == 'insert' and newline:        # Append any insertion containing a newline
             output.append(newline.group(0))
         elif opcode == 'delete':
             output.append(delta_a)
         elif opcode == 'replace':
-            output.append(delta_a)
             if newline:
-                output.append(newline.group(0))
+                if re.match(r'\r|\n', delta_b[-1]): # If the newline is the last character, insert the newline after delta_a
+                    output.append(delta_a + newline.group(0))
+                else:                               # Otherwise insert the newline before delta_a
+                    output.append(newline.group(0) + delta_a)
+            else:
+                output.append(delta_a)
 
+    # Strip leading and trailing whitespace from each line
+    new = ''.join(output)
+    lines = new.split('\n')
+    for i in range(len(lines)):
+        lines[i] = lines[i].strip()
+
+    # Write file
     file = open('GenderSwap.txt', 'w')
-    file.write(''.join(output))
+    file.write('\n'.join(lines))
     file.close()
 
 
@@ -295,7 +319,7 @@ def reconstruct(new, original):
 client = language.LanguageServiceClient()
 
 # Read text to process
-# TODO add support for other file types: .doc, .docx, .pdf, and .odt
+# TODO add support for other file types: .doc, .docx, .odt, .rtf, .pdf
 f1 = open('Test.txt', 'r')
 text = f1.read()
 f1.close()
